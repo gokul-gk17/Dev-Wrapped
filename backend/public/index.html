@@ -1,0 +1,1118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dev Wrapped</title>
+<meta name="description" content="GitHub activity read straight from MongoDB: print any account's Wrapped, see the whole sample, spot accounts that act like bots, and race an index against a full scan.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' fill='%232338E6'/%3E%3Cpath d='M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6L5.6 18.4' stroke='%23FFE24A' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --cobalt:#2338E6; --ink:#0C1038; --lemon:#FFE24A; --coral:#FF5C47; --mist:#EEF0FA; --white:#fff;
+  --sans:"Archivo","Arial Narrow",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"DM Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+  --ease:cubic-bezier(.2,.8,.2,1);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font:400 1rem/1.55 var(--sans);color:var(--ink);background:var(--ink);-webkit-font-smoothing:antialiased}
+h1,h2,h3,p,ol,dl,dd{margin:0}
+button{font:inherit;color:inherit}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.skip{position:absolute;left:-999px;top:8px;background:var(--lemon);color:var(--ink);padding:8px 12px;z-index:100;font-weight:700}
+.skip:focus{left:8px}
+:focus-visible{outline:3px solid var(--lemon);outline-offset:3px}
+.b-all :focus-visible,.b-mach :focus-visible{outline-color:var(--cobalt)}
+.wrap{max-width:1160px;margin:0 auto;padding:0 clamp(20px,4vw,40px)}
+
+/* nav */
+.nav{position:sticky;top:0;z-index:40;background:var(--ink);color:#fff}
+.navin{display:flex;align-items:center;justify-content:space-between;gap:24px;height:56px}
+.brand{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font:800 1.55rem/1 var(--sans);font-stretch:72%;white-space:nowrap}
+.brand svg{color:var(--lemon)}
+.nav nav{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+.nav nav a{color:rgba(255,255,255,.72);text-decoration:none;font-weight:600;font-size:.92rem;padding:19px 12px 16px;border-bottom:3px solid transparent;white-space:nowrap}
+.nav nav a:hover{color:#fff}
+.nav nav a[aria-current="true"]{color:#fff;border-bottom-color:var(--lemon)}
+
+/* colour blocks */
+.block{padding:clamp(48px,8vw,104px) 0;scroll-margin-top:56px;background:var(--bg);color:var(--fg)}
+.b-you{--bg:var(--cobalt);--fg:#fff;--muted:rgba(255,255,255,.78);--track:rgba(255,255,255,.15);--fill:#fff;--on-track:#fff;--on-fill:var(--cobalt);--mark:var(--lemon)}
+.b-all{--bg:var(--mist);--fg:var(--ink);--muted:rgba(12,16,56,.66);--track:rgba(35,56,230,.1);--fill:var(--cobalt);--on-track:var(--ink);--on-fill:#fff;--mark:var(--cobalt)}
+.b-mach{--bg:var(--lemon);--fg:var(--ink);--muted:rgba(12,16,56,.74);--track:rgba(12,16,56,.1);--fill:var(--ink);--on-track:var(--ink);--on-fill:var(--lemon);--mark:var(--ink);padding-top:0}
+.b-lab{--bg:var(--ink);--fg:#fff;--muted:rgba(255,255,255,.72);--track:rgba(255,255,255,.13);--fill:var(--lemon);--on-track:#fff;--on-fill:var(--ink);--mark:var(--lemon)}
+.tape{height:16px;background:repeating-linear-gradient(-45deg,var(--ink) 0 14px,var(--lemon) 14px 28px);margin-bottom:clamp(48px,8vw,104px)}
+
+h1,h2{font-family:var(--sans);font-weight:800;line-height:.95;font-stretch:68%;letter-spacing:-.005em;font-size:clamp(2.6rem,7vw,5rem)}
+h3.ph{font:700 1.05rem/1.2 var(--sans);font-stretch:110%;margin:0 0 12px}
+.lede{max-width:56ch;margin-top:16px;font-size:1.1rem;color:var(--muted)}
+.note{font-size:.88rem;color:var(--muted);max-width:62ch}
+.status{min-height:1.6em;margin-top:6px;font-weight:600}
+.status.busy::after{content:"";display:inline-block;width:.6em;height:1em;margin-left:6px;vertical-align:-.15em;background:currentColor;animation:blink 1s steps(1) infinite}
+.status.err{color:var(--lemon)}
+@keyframes blink{50%{opacity:0}}
+mark{background:none;color:var(--mark)}
+.tl{background:none;border:0;padding:0;font-weight:700;color:inherit;border-bottom:2px solid currentColor;cursor:pointer}
+.tl:hover{border-bottom-width:4px}
+
+/* finder */
+.finder{display:flex;align-items:center;gap:18px;margin:30px 0 14px;max-width:780px}
+.field{flex:1;min-width:0;display:flex;align-items:baseline;gap:6px;border-bottom:4px solid currentColor;padding-bottom:4px}
+.field:focus-within{border-color:var(--mark)}
+.at,.field input{font:800 clamp(2rem,5vw,3.4rem)/1.1 var(--sans);font-stretch:68%}
+.at{color:var(--mark)}
+.field input{flex:1;min-width:0;background:none;border:0;outline:0;color:inherit;padding:0}
+.field input::placeholder{color:currentColor;opacity:.38}
+.btn{background:var(--lemon);color:var(--ink);border:0;font:700 1rem/1 var(--sans);padding:1rem 1.4rem;cursor:pointer;white-space:nowrap;box-shadow:4px 4px 0 var(--ink);transition:transform .12s,box-shadow .12s}
+.btn:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--ink)}
+.btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
+.btn[disabled]{opacity:.65;cursor:progress}
+.b-lab .btn{box-shadow:4px 4px 0 var(--cobalt)}
+.b-lab .btn:hover{box-shadow:6px 6px 0 var(--cobalt)}
+.btn.ghost{background:var(--ink);color:#fff;box-shadow:4px 4px 0 var(--lemon)}
+.tries{color:var(--muted)}
+.tries .tl{color:#fff}
+
+/* stage */
+.stage{margin-top:48px}
+.stage-grid{display:grid;grid-template-columns:minmax(0,360px) minmax(0,1fr);gap:clamp(32px,6vw,80px);align-items:start}
+.printer-col{position:sticky;top:80px}
+.printer{filter:drop-shadow(0 22px 24px rgba(4,8,80,.38));padding:10px 0}
+.hint{margin-top:14px;font-size:.88rem;color:var(--muted)}
+.who{color:var(--muted);font-weight:600}
+.handle{font:800 clamp(3.4rem,11vw,8.5rem)/.86 var(--sans);font-stretch:62%;letter-spacing:-.01em;overflow-wrap:anywhere;margin:.1em 0 .22em}
+.story{font:600 clamp(1.3rem,2.4vw,1.8rem)/1.3 var(--sans);max-width:36ch}
+.actions{display:flex;gap:22px;margin:20px 0 44px}
+.duo{display:grid;grid-template-columns:1.1fr 1fr;gap:36px;margin:44px 0}
+
+/* receipt */
+.receipt{position:relative;background:#fff;color:var(--ink);font:400 13px/1.5 var(--mono);padding:26px 22px 22px;width:100%}
+.receipt::before,.receipt::after{content:"";position:absolute;left:0;right:0;height:8px;background-repeat:repeat-x;background-size:16px 8px}
+.receipt::before{top:-7px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='8'%3E%3Cpolygon points='0,8 16,8 8,0' fill='%23fff'/%3E%3C/svg%3E")}
+.receipt::after{bottom:-7px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='8'%3E%3Cpolygon points='0,0 16,0 8,8' fill='%23fff'/%3E%3C/svg%3E")}
+.receipt.print{animation:feed 1.7s steps(30,end) both}
+@keyframes feed{from{clip-path:inset(-12px 0 100% 0)}to{clip-path:inset(-12px 0 -12px 0)}}
+.rh{text-align:center;margin-bottom:14px}
+.rh svg{color:var(--cobalt);display:block;margin:0 auto 4px}
+.rh b{display:block;font:800 2.1rem/1 var(--sans);font-stretch:68%}
+.rh span{display:block;margin-top:6px}
+.rrow{display:flex;justify-content:space-between;gap:12px}
+.dash{border:0;border-top:2px dashed rgba(12,16,56,.4);margin:12px 0}
+.dbl{border:0;border-top:4px double rgba(12,16,56,.55);margin:12px 0}
+.rline{display:flex;align-items:baseline;gap:6px;width:100%;background:none;border:0;padding:2px 4px;margin:0 -4px;width:calc(100% + 8px);font:inherit;color:inherit;text-align:left;cursor:pointer}
+div.rline{cursor:default}
+.lead{flex:1;border-bottom:2px dotted rgba(12,16,56,.35);transform:translateY(-3px);min-width:10px}
+.rq{font-weight:500;min-width:4ch;text-align:right}
+.rp{width:4.4ch;text-align:right;opacity:.6}
+button.rline:hover,button.rline[aria-pressed="true"]{background:var(--ink);color:#fff}
+.rsum dt,.rsum dd{display:inline}
+.rsum div{display:flex;justify-content:space-between;gap:12px}
+.rsum dd{font-weight:500}
+.rtotal{display:flex;justify-content:space-between;align-items:baseline}
+.rtotal b{font:800 2.7rem/1 var(--sans);font-stretch:68%}
+.stampwrap{text-align:center;margin:20px 0 12px}
+.stamp{display:inline-block;transform:rotate(-8deg);border:3px solid var(--coral);outline:1px solid var(--coral);outline-offset:3px;color:var(--coral);padding:5px 14px;font:800 1.5rem/1 var(--sans);font-stretch:70%;text-transform:uppercase;letter-spacing:.04em}
+.stampwrap small{display:block;margin-top:12px;font-size:12px;opacity:.7}
+.rbar svg{display:block;width:100%;height:46px;fill:var(--ink)}
+.rcode{text-align:center;margin-top:6px;letter-spacing:.12em}
+.rfoot{text-align:center;margin-top:10px;opacity:.65;font-size:12px}
+
+/* bar rows: label sits on the bar, text flips colour where the fill passes under it */
+.brow{position:relative;display:block;width:100%;height:50px;margin:0 0 6px;padding:0;border:0;background:var(--track);color:var(--on-track);text-align:left;cursor:pointer;text-decoration:none;overflow:hidden;transition:transform .15s var(--ease)}
+.brow.static{cursor:default}
+.brow:not(.static):hover{transform:translateX(4px)}
+.brow[aria-pressed="true"]{outline:3px solid var(--mark);outline-offset:2px}
+.layer{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 16px}
+.layer.over{background:var(--fill);color:var(--on-fill);clip-path:inset(0 calc((1 - var(--v)) * 100%) 0 0);transition:clip-path .7s var(--ease)}
+.pre .layer.over{clip-path:inset(0 100% 0 0)}
+.bl{display:flex;align-items:baseline;gap:10px;min-width:0}
+.bl .t{font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bl small{font-size:.8rem;opacity:.74;white-space:nowrap}
+.bn{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bn small{font-weight:500;opacity:.74;margin-left:6px}
+
+/* day bars, slots, weekdays */
+.days{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:10px;align-items:end}
+.col{display:flex;flex-direction:column;gap:6px;outline-offset:4px}
+.barwrap{height:170px;display:flex;align-items:flex-end}
+.bar{width:100%;height:calc(var(--v) * 100%);min-height:3px;background:var(--fill);transform-origin:bottom;transition:transform .6s var(--ease),background .15s}
+.pre .bar{transform:scaleY(0)}
+.bar.peak,.col:hover .bar,.col:focus-visible .bar{background:var(--mark)}
+.b-all .bar.peak,.b-all .col:hover .bar{background:var(--coral)}
+.val{font-weight:700;font-size:.85rem;min-height:1.3em;text-align:center;font-variant-numeric:tabular-nums}
+.lab{font-size:.8rem;text-align:center;line-height:1.2}
+.lab small{display:block;color:var(--muted)}
+.slotbar{display:flex;height:48px}
+.seg{display:flex;align-items:center;padding:0 12px;font-weight:700;font-size:.88rem;overflow:hidden;white-space:nowrap}
+.seg.s0{background:#fff;color:var(--cobalt)}
+.seg.s1{background:var(--lemon);color:var(--ink)}
+.wk{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.wcell{display:flex;flex-direction:column;gap:5px;align-items:center;font-size:.8rem;color:var(--muted)}
+.wsq{width:100%;aspect-ratio:1;background:rgba(255,255,255,.15);position:relative}
+.wsq::after{content:"";position:absolute;inset:0;background:var(--lemon);opacity:var(--i)}
+
+/* event log sheet */
+.sheet{background:#fff;color:var(--ink);padding:clamp(22px,3.4vw,40px);margin-top:clamp(48px,7vw,88px)}
+.sheet-h{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:8px}
+.sheet h3{font:800 clamp(1.8rem,3.4vw,2.6rem)/1 var(--sans);font-stretch:70%}
+.filters{display:flex;gap:8px;flex-wrap:wrap}
+.filters button{background:var(--ink);color:#fff;border:0;padding:6px 10px;font-size:.84rem;font-weight:600;cursor:pointer}
+.filters button:hover{background:var(--coral);color:var(--ink)}
+.loglist{list-style:none;padding:0;margin:12px 0 0}
+.loglist li{display:grid;grid-template-columns:150px 170px minmax(0,1fr);gap:14px;align-items:baseline;padding:10px 0;border-bottom:1px solid rgba(12,16,56,.14)}
+.loglist time{font-variant-numeric:tabular-nums;color:rgba(12,16,56,.7);font-size:.9rem}
+.tag{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:.9rem}
+.tag::before{content:"";width:10px;height:10px;background:var(--c,var(--ink))}
+.loglist a{color:var(--ink);text-decoration:none;overflow-wrap:anywhere}
+.loglist a:hover{text-decoration:underline}
+.loglist a span{color:rgba(12,16,56,.55)}
+.sheet .note{color:rgba(12,16,56,.66);margin-top:14px}
+.sheet .btn{margin-top:20px}
+
+/* everyone */
+.statement{font:600 clamp(1.5rem,3vw,2.3rem)/1.18 var(--sans);max-width:30ch;margin:28px 0 24px}
+.statement b{font-weight:800;color:var(--cobalt)}
+.split{display:flex;height:72px}
+.split>div{display:flex;flex-direction:column;justify-content:center;padding:0 16px;overflow:hidden;white-space:nowrap;min-width:0}
+.split b{font-size:1.05rem}
+.split small{font-size:.82rem;opacity:.85}
+.split .h{background:var(--cobalt);color:#fff}
+.split .b{background:var(--coral);color:var(--ink)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:clamp(32px,5vw,64px);margin-top:clamp(40px,6vw,72px)}
+.cols>section{display:flex;flex-direction:column}
+#p-volume{display:flex;flex-direction:column;justify-content:space-between;flex:1}
+.chart{display:block;width:100%;height:auto;touch-action:pan-y}
+.chart .gl{stroke:rgba(12,16,56,.14);stroke-width:1}
+.chart .ax{fill:var(--muted);font:500 11px var(--sans)}
+.chart .ar{fill:rgba(35,56,230,.14)}
+.chart .ln{fill:none;stroke:var(--cobalt);stroke-width:3.5;stroke-linejoin:round;stroke-linecap:round}
+.chart .sl{stroke:var(--ink);stroke-width:1.5;stroke-dasharray:4 4}
+.chart .sd{fill:#fff;stroke:var(--cobalt);stroke-width:3.5}
+.chart .pk{fill:var(--coral)}
+.chart .pt{fill:var(--ink);font:700 12px var(--sans)}
+.dstats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:auto;padding-top:20px}
+.dstat{background:var(--track);padding:14px 16px;border-left:3px solid var(--cobalt);display:flex;flex-direction:column;justify-content:space-between;min-height:96px}
+.dstat small{display:block;font-size:.74rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.dstat b{display:block;font:800 1.38rem/1.1 var(--sans);color:var(--ink);margin:6px 0 2px}
+.dstat span{display:block;font-size:.78rem;color:var(--muted);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:600px){.dstats{grid-template-columns:1fr}}
+
+/* lab */
+.lab-grid{display:grid;grid-template-columns:1fr 1fr;gap:clamp(32px,6vw,80px);margin-top:32px;align-items:start}
+.code{margin:24px 0 0;padding:16px 18px;background:rgba(255,255,255,.08);border-left:4px solid var(--lemon);font:400 .85rem/1.6 var(--mono);overflow:auto;color:#fff}
+.verdict{font:600 clamp(1.4rem,2.6vw,2rem)/1.2 var(--sans);margin-bottom:28px;max-width:26ch}
+.verdict b{color:var(--lemon);font-weight:800}
+.foot{margin-top:clamp(56px,8vw,104px);padding-top:20px;border-top:4px solid var(--lemon);color:var(--muted);font-size:.88rem;max-width:72ch}
+
+.skel{color:var(--muted);font-weight:600}
+.skel::after{content:"";display:inline-block;width:.55em;height:1em;margin-left:6px;vertical-align:-.15em;background:currentColor;animation:blink 1s steps(1) infinite}
+.skel.err::after{display:none}
+
+.tip{position:fixed;z-index:80;pointer-events:none;background:var(--ink);color:#fff;font:600 .82rem/1.3 var(--sans);padding:7px 10px;transform:translate(-50%,calc(-100% - 12px));opacity:0;transition:opacity .1s;white-space:nowrap;box-shadow:3px 3px 0 var(--lemon)}
+.tip.on{opacity:1}
+
+@media (max-width:900px){
+  .stage-grid,.cols,.lab-grid,.duo{grid-template-columns:1fr}
+  .printer-col{position:static;max-width:380px}
+  .loglist li{grid-template-columns:1fr;gap:2px}
+  .finder{flex-wrap:wrap}
+  .brand span{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{transition:none!important;animation:none!important}
+}
+
+/* people & machines switcher */
+.view-switch{display:inline-flex;gap:4px;background:rgba(12,16,56,.12);padding:4px;margin-bottom:24px;border:2px solid var(--ink)}
+.vtab{background:none;border:0;color:var(--ink);font:700 .94rem/1 var(--sans);padding:9px 18px;cursor:pointer;transition:background .12s,color .12s}
+.vtab:hover{background:rgba(12,16,56,.1)}
+.vtab.active{background:var(--ink);color:var(--lemon)}
+.people-controls{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:28px 0 16px;flex-wrap:wrap}
+.persona-chips{display:flex;gap:6px;flex-wrap:wrap}
+.pchip{background:none;border:2px solid var(--ink);color:var(--ink);font:700 .86rem/1 var(--sans);padding:7px 12px;cursor:pointer;transition:all .12s}
+.pchip:hover{background:var(--ink);color:#fff}
+.pchip.active{background:var(--ink);color:var(--lemon);box-shadow:3px 3px 0 rgba(12,16,56,.35)}
+.btn-shuffle{display:inline-flex;align-items:center;gap:6px;background:var(--ink);color:#fff;border:0;font:700 .9rem/1 var(--sans);padding:8px 14px;cursor:pointer;box-shadow:3px 3px 0 var(--cobalt);transition:transform .12s,box-shadow .12s}
+.btn-shuffle:hover{transform:translate(-1px,-1px);box-shadow:5px 5px 0 var(--cobalt)}
+.btn-shuffle:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--cobalt)}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap navin">
+    <a class="brand" href="#you" aria-label="Dev Wrapped">
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" stroke="currentColor" stroke-width="3" stroke-linecap="round" fill="none"/></svg>
+      <span>Dev Wrapped</span>
+    </a>
+    <nav aria-label="Sections">
+      <a href="#you" data-sec="you">Your Wrapped</a>
+      <a href="#everyone" data-sec="everyone">Everyone</a>
+      <a href="#people" data-sec="people">People</a>
+      <a href="#lab" data-sec="lab">Index lab</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section id="you" class="block b-you" aria-labelledby="h-you">
+    <div class="wrap">
+      <h1 id="h-you">Look up a GitHub account</h1>
+      <p class="lede" id="windowNote">Print the Wrapped for any account in the sampled window.</p>
+      <form id="form" class="finder" autocomplete="off">
+        <label class="sr" for="q">GitHub handle</label>
+        <div class="field"><span class="at" aria-hidden="true">@</span><input id="q" type="text" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="github-handle" required></div>
+        <button type="submit" class="btn" id="go">Print Wrapped</button>
+      </form>
+      <p class="tries">Try <button type="button" class="tl" data-try="Dtwosam">Dtwosam</button> or <button type="button" class="tl" data-try="dependabot[bot]">dependabot[bot]</button>. Press / to come back to this box.</p>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <div id="wrapped" class="stage" hidden></div>
+    </div>
+  </section>
+
+  <section id="everyone" class="block b-all" aria-labelledby="h-all">
+    <div class="wrap">
+      <h2 id="h-all">The whole sample at a glance</h2>
+      <div id="p-overview"><p class="skel">Scanning every event. The first load takes a moment, then the result is cached for ten minutes</p></div>
+      <div class="cols">
+        <section>
+          <h3 class="ph">Events per sampled day</h3>
+          <div id="p-volume"><p class="skel">Counting</p></div>
+        </section>
+        <section>
+          <h3 class="ph">What people did</h3>
+          <div id="p-mix"><p class="skel">Counting</p></div>
+        </section>
+      </div>
+      <div class="cols">
+        <section>
+          <h3 class="ph">Trending repositories</h3>
+          <p class="note" style="margin-bottom:12px">Ranked by distinct contributors who are not declared bots.</p>
+          <div id="p-trending"><p class="skel">Ranking</p></div>
+        </section>
+        <section>
+          <h3 class="ph">Busiest organisations</h3>
+          <p class="note" style="margin-bottom:12px">Events from accounts that are not declared bots.</p>
+          <div id="p-orgs"><p class="skel">Ranking</p></div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section id="people" class="block b-mach" aria-labelledby="h-people">
+    <a id="machines" class="sr" href="#people">Machines</a>
+    <div class="tape" aria-hidden="true"></div>
+    <div class="wrap">
+      <div class="view-switch" role="tablist" aria-label="Account view selection">
+        <button type="button" class="vtab active" id="tabPeople" role="tab" aria-selected="true" aria-controls="p-accounts">People</button>
+        <button type="button" class="vtab" id="tabAutomation" role="tab" aria-selected="false" aria-controls="p-accounts">Suspected automation</button>
+      </div>
+      <h2 id="h-people">Accounts with a story to tell</h2>
+      <p class="lede" id="peopleLede">Accounts with 25 to 600 events, at least 2 repos, 3 event types and 3 active days. Picked at random from a pool of 120. Select an account to read its Wrapped.</p>
+
+      <div id="peopleControls" class="people-controls">
+        <div class="persona-chips" id="personaChips" role="group" aria-label="Filter by persona">
+          <button type="button" class="pchip active" data-persona="all" aria-pressed="true">All</button>
+          <button type="button" class="pchip" data-persona="Committer" aria-pressed="false">Committer</button>
+          <button type="button" class="pchip" data-persona="Reviewer" aria-pressed="false">Reviewer</button>
+          <button type="button" class="pchip" data-persona="Issue Hunter" aria-pressed="false">Issue Hunter</button>
+          <button type="button" class="pchip" data-persona="Pull Request Pro" aria-pressed="false">Pull Request Pro</button>
+          <button type="button" class="pchip" data-persona="All-Rounder" aria-pressed="false">All-Rounder</button>
+        </div>
+        <button type="button" class="btn-shuffle" id="btnShuffle" title="Shuffle accounts">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+          Show different accounts
+        </button>
+      </div>
+
+      <div id="p-accounts" style="margin-top:20px"><p class="skel">Looking for accounts with active Wrappeds</p></div>
+    </div>
+  </section>
+
+  <section id="lab" class="block b-lab" aria-labelledby="h-lab">
+    <div class="wrap">
+      <h2 id="h-lab">Same query, two plans</h2>
+      <div class="lab-grid">
+        <div>
+          <p class="lede" style="margin-top:0">Every figure on this page comes from MongoDB. This runs one real query, all events for one account newest first, twice: once forced to read the whole collection, once through the compound index. Each plan runs three times and the time shown is the median.</p>
+          <pre class="code">db.events.find({ "actor.login": user })
+  .sort({ created_at: -1 })
+  .hint({ $natural: 1 })   // full scan
+  .hint("actor_time")      // { "actor.login": 1, created_at: -1 }</pre>
+          <form id="raceForm" class="finder" autocomplete="off" style="margin-top:28px">
+            <label class="sr" for="labUser">GitHub handle to query</label>
+            <div class="field"><span class="at" aria-hidden="true">@</span><input id="labUser" type="text" spellcheck="false" autocapitalize="off" placeholder="github-handle" required></div>
+            <button type="submit" class="btn" id="race">Run the race</button>
+          </form>
+        </div>
+        <div id="labOut" aria-live="polite"><p class="note">Run the race to compare the two plans for the account in the box.</p></div>
+      </div>
+      <p class="foot">The data is a sample of public GitHub events, not a complete history. A declared bot is an account whose login ends in [bot]. All numbers come from live MongoDB aggregation pipelines served by the Express API.</p>
+    </div>
+  </section>
+</main>
+<div id="tip" class="tip" role="presentation"></div>
+<noscript><p style="padding:24px;background:#fff">Dev Wrapped needs JavaScript to draw its charts.</p></noscript>
+
+<script>
+(() => {
+"use strict";
+
+const LIMIT = 15;
+
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
+const NF = new Intl.NumberFormat("en-US");
+const fmt = n => NF.format(n);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const reduceMotion = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+const dayDate = id => new Date(id + "T00:00:00Z");
+const fmtDay = id => dayDate(id).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+const fmtWd = id => dayDate(id).toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" });
+const isoDay = iso => new Date(iso).toISOString().slice(0, 10);
+const hhmm = iso => new Date(iso).toISOString().slice(11, 16);
+const slotLabel = h => String(h).padStart(2, "0") + ":00 UTC";
+const kfmt = v => v >= 1000 ? (v / 1000).toFixed(v % 1000 ? 1 : 0).replace(/\.0$/, "") + "k" : String(v);
+const ghUrl = name => "https://github.com/" + name.split("/").map(encodeURIComponent).join("/");
+
+const TYPE_LABEL = { PushEvent: "Push", CreateEvent: "Create", DeleteEvent: "Delete", PullRequestEvent: "Pull request", PullRequestReviewEvent: "PR review", PullRequestReviewCommentEvent: "PR review comment", IssuesEvent: "Issue", IssueCommentEvent: "Issue comment", WatchEvent: "Star", ForkEvent: "Fork", ReleaseEvent: "Release", MemberEvent: "Member", CommitCommentEvent: "Commit comment", GollumEvent: "Wiki edit", DiscussionEvent: "Discussion", PublicEvent: "Made public" };
+const TYPE_NOUN = { PushEvent: "pushes", CreateEvent: "new branches, tags and repositories", DeleteEvent: "deleted branches and tags", PullRequestEvent: "pull request activity", PullRequestReviewEvent: "pull request reviews", PullRequestReviewCommentEvent: "review comments", IssuesEvent: "issue activity", IssueCommentEvent: "issue comments", WatchEvent: "stars", ForkEvent: "forks", ReleaseEvent: "releases" };
+const TYPE_COL = { PushEvent: "#2338E6", CreateEvent: "#FF5C47", DeleteEvent: "#8B8FB5", PullRequestEvent: "#0C1038", PullRequestReviewEvent: "#6F7BFF", PullRequestReviewCommentEvent: "#6F7BFF", IssuesEvent: "#E0B800", IssueCommentEvent: "#E0B800", WatchEvent: "#8B8FB5", ForkEvent: "#8B8FB5" };
+const typeLabel = t => TYPE_LABEL[t] || t.replace(/Event$/, "").replace(/([a-z])([A-Z])/g, "$1 $2");
+const PERSONA = { "Committer": "ships code, steadily", "Reviewer": "reads before it merges", "Issue Hunter": "finds the problems first", "Pull Request Pro": "lives in the diff", "All-Rounder": "a bit of everything" };
+
+const state = { user: null, wrapped: null, days: [], filters: { type: null, repo: null }, page: 1, busy: false, summary: "" };
+
+async function api(path) {
+  const r = await fetch(path, { headers: { Accept: "application/json" } });
+  let body = null;
+  try { body = await r.json(); } catch (_) { /* not JSON */ }
+  if (!r.ok) {
+    const e = new Error((body && body.error) || r.statusText || "Request failed");
+    e.status = r.status;
+    throw e;
+  }
+  return body;
+}
+
+/* paint(): set markup, then release the "pre" state so bars and clip-paths animate in */
+function paint(el, html) {
+  el.classList.add("pre");
+  el.innerHTML = html;
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove("pre")));
+}
+
+/* ---------- tooltip ---------- */
+const tip = $("#tip");
+function showTip(text, x, y) {
+  tip.textContent = text;
+  tip.classList.add("on");
+  const w = tip.offsetWidth;
+  tip.style.left = Math.min(Math.max(x, w / 2 + 8), window.innerWidth - w / 2 - 8) + "px";
+  tip.style.top = y + "px";
+}
+function hideTip() { tip.classList.remove("on"); }
+document.addEventListener("pointermove", e => {
+  if (!e.target.closest) return;
+  if (e.target.closest(".chart")) return;
+  const t = e.target.closest("[data-tip]");
+  if (t) showTip(t.dataset.tip, e.clientX, e.clientY); else hideTip();
+});
+document.addEventListener("pointerdown", e => {
+  const t = e.target.closest && e.target.closest("[data-tip]");
+  if (t) showTip(t.dataset.tip, e.clientX, e.clientY);
+});
+document.addEventListener("focusin", e => {
+  const t = e.target.closest && e.target.closest("[data-tip]");
+  if (t) { const r = t.getBoundingClientRect(); showTip(t.dataset.tip, r.left + r.width / 2, r.top); }
+});
+document.addEventListener("focusout", hideTip);
+
+/* ---------- bar rows (label sits on the bar) ---------- */
+function bars(items, o) {
+  const max = Math.max(...items.map(o.value), 1);
+  return items.map(it => {
+    const v = Math.max(o.value(it) / max, 0.006).toFixed(4);
+    const key = o.key ? o.key(it) : "";
+    const label = esc(o.label(it));
+    const sub = o.sub ? esc(o.sub(it)) : "";
+    const num = o.num(it);
+    const layer = cls => `<span class="layer ${cls}"${cls === "over" ? ' aria-hidden="true"' : ""}><span class="bl"><span class="t">${label}</span>${sub ? `<small>${sub}</small>` : ""}</span><span class="bn">${num}</span></span>`;
+    const body = layer("base") + layer("over");
+    const attrs = `class="brow${o.href || o.attr ? "" : " static"}" style="--v:${v}"`;
+    if (o.href) return `<a ${attrs} href="${esc(o.href(it))}" target="_blank" rel="noopener">${body}</a>`;
+    if (o.attr) return `<button type="button" ${attrs} data-${o.attr}="${esc(key)}" aria-pressed="${o.active === key}">${body}</button>`;
+    return `<div ${attrs}>${body}</div>`;
+  }).join("");
+}
+
+/* ---------- Your Wrapped ---------- */
+function status(msg, kind) {
+  const s = $("#status");
+  s.textContent = msg || "";
+  s.className = "status" + (kind ? " " + kind : "");
+}
+
+async function loadUser(user, opts) {
+  const push = !(opts && opts.push === false);
+  user = String(user || "").trim();
+  if (!user) return;
+  $("#q").value = user;
+  $("#labUser").value = user;
+  state.user = user;
+  $("#go").disabled = true;
+  status("Reading the logs for @" + user, "busy");
+  const t0 = performance.now();
+  try {
+    const d = await api("/api/wrapped/" + encodeURIComponent(user));
+    const ms = Math.round(performance.now() - t0);
+    state.wrapped = d;
+    state.filters = { type: null, repo: null };
+    state.page = 1;
+    status("");
+    renderWrapped(d, ms);
+    if (push) { try { history.replaceState(null, "", "?u=" + encodeURIComponent(user)); } catch (_) { /* ignore */ } }
+    loadLog(true);
+  } catch (e) {
+    state.wrapped = null;
+    $("#wrapped").hidden = true;
+    if (e.status === 404) status("No events for @" + user + " in the sampled window. Accounts that were quiet at 10:00 and 20:00 UTC do not appear. Try another handle.", "err");
+    else status("Could not reach the API (" + e.message + "). Check that the server is running, then try again.", "err");
+  } finally {
+    $("#go").disabled = false;
+  }
+}
+
+function story(d) {
+  const days = state.days.length || d.byDay.length;
+  const total = d.events;
+  const top = d.byType[0];
+  const topPct = Math.round(top.n / total * 100);
+  const peak = d.byDay.reduce((a, b) => b.n > a.n ? b : a, d.byDay[0]);
+  const P = [];
+  P.push(d.user + " logged ", { h: fmt(total) }, total === 1 ? " event across " : " events across ", { h: fmt(d.repos) },
+    d.repos === 1 ? " repository, active on " : " repositories, active on ", { h: d.activeDays }, " of ", { h: days }, " sampled days. ");
+  P.push(topPct >= 50 ? "Most of it (" : "The biggest share (", { h: topPct + "%" },
+    ") was " + (TYPE_NOUN[top._id] || typeLabel(top._id).toLowerCase() + " activity") + ". ");
+  const r = d.topRepos && d.topRepos[0];
+  if (r && d.repos > 1 && r.n / total >= 0.3) P.push("The work centred on ", { h: r._id.split("/").pop() }, ". ");
+  P.push("Busiest day: ", { h: fmtDay(peak._id) }, " with " + fmt(peak.n) + " events");
+  if (d.longestStreak > 1) P.push(", and the longest unbroken run was ", { h: d.longestStreak + " days" }, ".");
+  else P.push(".");
+  return P;
+}
+
+function barcode(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  let s = h || 1, x = 0, out = "";
+  for (let i = 0; i < 46; i++) {
+    s = (Math.imul(s, 1103515245) + 12345) >>> 0;
+    const w = 1 + ((s >>> 28) % 4);
+    if (i % 2 === 0) out += `<rect x="${x}" y="0" width="${w}" height="46"/>`;
+    x += w;
+  }
+  return `<svg viewBox="0 0 ${x} 46" preserveAspectRatio="none" aria-hidden="true">${out}</svg>`;
+}
+
+function renderWrapped(d, ms) {
+  const root = $("#wrapped");
+  const total = d.events;
+  const first = fmtDay(isoDay(d.firstSeen));
+  const last = fmtDay(isoDay(d.lastSeen));
+  const dayIds = state.days;
+  const windowText = dayIds.length ? `${fmtDay(dayIds[0])} to ${fmtDay(dayIds[dayIds.length - 1])} ${dayDate(dayIds[dayIds.length - 1]).getUTCFullYear()}` : "the sampled window";
+  const sampled = dayIds.length || d.byDay.length;
+  const lines = d.byType.slice(0, 6);
+  const restN = d.byType.slice(6).reduce((s, x) => s + x.n, 0);
+  const pct = n => Math.round(n / total * 100) + "%";
+  const code = "DW-" + (d.user.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 10) || "USER") + "-" + isoDay(d.lastSeen).slice(5).replace("-", "");
+  const parts = story(d);
+  state.summary = parts.map(p => typeof p === "string" ? p : p.h).join("");
+  const storyHtml = parts.map(p => typeof p === "string" ? esc(p) : `<mark>${esc(p.h)}</mark>`).join("");
+  const persona = d.persona || "All-Rounder";
+
+  const receiptLines = lines.map(x =>
+    `<button type="button" class="rline" data-type="${esc(x._id)}" aria-pressed="false"><span>${esc(typeLabel(x._id))}</span><span class="lead"></span><span class="rq">${fmt(x.n)}</span><span class="rp">${pct(x.n)}</span></button>`).join("")
+    + (restN ? `<div class="rline"><span>Other (${d.byType.length - 6} types)</span><span class="lead"></span><span class="rq">${fmt(restN)}</span><span class="rp">${pct(restN)}</span></div>` : "");
+
+  const weekdays = [2, 3, 4, 5, 6, 7, 1];
+  const wl = ["M", "T", "W", "T", "F", "S", "S"];
+  const wn = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const wmap = Object.fromEntries((d.byWeekday || []).map(x => [x._id, x.n]));
+  const wmax = Math.max(...weekdays.map(k => wmap[k] || 0), 1);
+  const wkHtml = weekdays.map((k, i) =>
+    `<div class="wcell" data-tip="${esc(wn[i] + ": " + fmt(wmap[k] || 0) + " events")}"><span class="wsq" style="--i:${((wmap[k] || 0) / wmax).toFixed(3)}"></span>${wl[i]}</div>`).join("");
+
+  const slots = d.bySlot || [];
+  const stotal = slots.reduce((s, x) => s + x.n, 0) || 1;
+  const slotHtml = slots.map((s, i) =>
+    `<div class="seg s${i % 2}" style="flex:${s.n} 1 0" data-tip="${esc(slotLabel(s._id) + ": " + fmt(s.n) + " events")}">${esc(slotLabel(s._id))} ${Math.round(s.n / stotal * 100)}%</div>`).join("");
+
+  root.hidden = false;
+  paint(root, `
+    <div class="stage-grid">
+      <aside class="printer-col">
+        <div class="printer">
+          <article class="receipt print" aria-label="Wrapped receipt for ${esc(d.user)}">
+            <header class="rh">
+              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" stroke="currentColor" stroke-width="3" stroke-linecap="round" fill="none"/></svg>
+              <b>Dev Wrapped</b>
+              <span>${esc(windowText)}</span>
+            </header>
+            <div class="rrow"><span>Account</span><b>@${esc(d.user)}</b></div>
+            <div class="rrow"><span>Type</span><span>${d.isBot ? "Declared bot" : "Other account"}</span></div>
+            <hr class="dash">
+            ${receiptLines}
+            <hr class="dash">
+            <dl class="rsum">
+              <div><dt>Repositories</dt><dd>${fmt(d.repos)}</dd></div>
+              <div><dt>Active days</dt><dd>${d.activeDays} of ${sampled}</dd></div>
+              <div><dt>Longest streak</dt><dd>${d.longestStreak} ${d.longestStreak === 1 ? "day" : "days"}</dd></div>
+              <div><dt>First seen</dt><dd>${first}</dd></div>
+              <div><dt>Last seen</dt><dd>${last}</dd></div>
+            </dl>
+            <hr class="dbl">
+            <p class="rtotal"><span>Total events</span><b>${fmt(total)}</b></p>
+            <div class="stampwrap"><span class="stamp">${esc(persona)}</span><small>${esc(PERSONA[persona] || "")}</small></div>
+            <div class="rbar">${barcode(d.user)}</div>
+            <p class="rcode">${esc(code)}</p>
+            <p class="rfoot">${d.cached ? "Served from cache" : "Computed live"} in ${ms} ms</p>
+          </article>
+        </div>
+        <p class="hint">Select a line on the receipt to filter the event log below.</p>
+      </aside>
+      <div class="stage-main">
+        <p class="who">${d.isBot ? "Declared bot" : "Other account"}. First seen ${first}, last seen ${last}.</p>
+        <h2 class="handle">${esc(d.user)}</h2>
+        <p class="story">${storyHtml}</p>
+        <div class="actions">
+          <button type="button" class="tl" id="copySummary">Copy summary</button>
+          <button type="button" class="tl" id="copyLink">Copy link</button>
+        </div>
+        <h3 class="ph">Events per sampled day</h3>
+        <div class="days" id="daychart"></div>
+        <div class="duo">
+          <div><h3 class="ph">Which snapshot</h3><div class="slotbar">${slotHtml || '<p class="note">No snapshot data.</p>'}</div><p class="note" style="margin-top:8px">The data holds one-hour snapshots at 10:00 and 20:00 UTC.</p></div>
+          <div><h3 class="ph">Which weekday</h3><div class="wk">${wkHtml}</div></div>
+        </div>
+        <h3 class="ph">Where the work happened</h3>
+        <div id="repoBars">${bars(d.topRepos || [], { value: x => x.n, key: x => x._id, label: x => x._id, attr: "repo", active: null, num: x => `${fmt(x.n)}<small>${pct(x.n)}</small>` })}</div>
+        <p class="note" style="margin-top:8px">Select a repository to filter the event log.</p>
+      </div>
+    </div>
+    <section class="sheet" id="log" aria-labelledby="logh">
+      <div class="sheet-h"><h3 id="logh">Event log</h3><div class="filters" id="filters"></div></div>
+      <ol class="loglist" id="rlist"></ol>
+      <p class="note" id="rempty" hidden>No events match this filter. Clear a filter to see more.</p>
+      <button type="button" class="btn ghost" id="more" hidden>Show more events</button>
+    </section>`);
+  const rc = $(".receipt", root);
+  rc.addEventListener("animationend", () => rc.classList.remove("print"), { once: true });
+  renderDayChart();
+  renderFilters();
+}
+
+function renderDayChart() {
+  const d = state.wrapped;
+  const el = $("#daychart");
+  if (!d || !el) return;
+  const days = state.days.length ? state.days : d.byDay.map(x => x._id);
+  const map = Object.fromEntries(d.byDay.map(x => [x._id, x.n]));
+  const vals = days.map(k => map[k] || 0);
+  const max = Math.max(...vals, 1);
+  const peak = vals.indexOf(max);
+  paint(el, days.map((k, i) =>
+    `<div class="col" tabindex="0" data-tip="${esc(fmtWd(k) + " " + fmtDay(k) + ": " + fmt(vals[i]) + " events")}"><span class="val">${vals[i] || ""}</span><span class="barwrap"><i class="bar${i === peak && vals[i] ? " peak" : ""}" style="--v:${(vals[i] / max).toFixed(4)}"></i></span><span class="lab">${fmtDay(k)}<small>${fmtWd(k)}</small></span></div>`).join(""));
+}
+
+/* ---------- event log (uses GET /api/events) ---------- */
+function renderFilters() {
+  const f = state.filters;
+  const chips = [];
+  if (f.type) chips.push(`<button type="button" data-clear="type" aria-label="Clear type filter">Type: ${esc(typeLabel(f.type))} &times;</button>`);
+  if (f.repo) chips.push(`<button type="button" data-clear="repo" aria-label="Clear repository filter">Repo: ${esc(f.repo)} &times;</button>`);
+  const box = $("#filters");
+  if (box) box.innerHTML = chips.join("");
+  $$("[data-type]", $("#wrapped")).forEach(b => b.setAttribute("aria-pressed", String(b.dataset.type === f.type)));
+  $$("[data-repo]", $("#wrapped")).forEach(b => b.setAttribute("aria-pressed", String(b.dataset.repo === f.repo)));
+}
+
+async function loadLog(reset) {
+  if (state.busy || !state.user) return;
+  state.busy = true;
+  const list = $("#rlist");
+  if (!list) { state.busy = false; return; }
+  if (reset) { state.page = 1; list.innerHTML = ""; $("#rempty").hidden = true; }
+  const p = new URLSearchParams({ user: state.user, page: state.page, limit: LIMIT });
+  if (state.filters.type) p.set("type", state.filters.type);
+  if (state.filters.repo) p.set("repo", state.filters.repo);
+  try {
+    const r = await api("/api/events?" + p.toString());
+    const docs = r.docs || [];
+    list.insertAdjacentHTML("beforeend", docs.map(e => {
+      const repo = (e.repo && e.repo.name) || "";
+      const i = repo.indexOf("/");
+      const owner = i < 0 ? "" : repo.slice(0, i + 1);
+      const name = i < 0 ? repo : repo.slice(i + 1);
+      const iso = new Date(e.created_at).toISOString();
+      return `<li><time datetime="${iso}">${fmtDay(iso.slice(0, 10))}, ${hhmm(iso)} UTC</time><span class="tag" style="--c:${TYPE_COL[e.type] || "#8B8FB5"}">${esc(typeLabel(e.type))}</span>${repo ? `<a href="${esc(ghUrl(repo))}" target="_blank" rel="noopener"><span>${esc(owner)}</span>${esc(name)}</a>` : "<span>unknown repository</span>"}</li>`;
+    }).join(""));
+    $("#rempty").hidden = !(reset && docs.length === 0);
+    $("#more").hidden = docs.length < (r.limit || LIMIT);
+    state.page += 1;
+  } catch (e) {
+    list.insertAdjacentHTML("beforeend", `<li><span></span><span class="tag">Error</span><span>Could not load events (${esc(e.message)}).</span></li>`);
+  } finally {
+    state.busy = false;
+  }
+}
+
+function toggleFilter(kind, val) {
+  state.filters[kind] = state.filters[kind] === val ? null : val;
+  renderFilters();
+  loadLog(true);
+  const log = $("#log");
+  if (log) log.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+}
+
+/* ---------- Everyone ---------- */
+function curve(pts) {
+  if (pts.length < 3) return pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join("");
+  let d = `M${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+    d += `C${c1[0].toFixed(1)},${c1[1].toFixed(1)} ${c2[0].toFixed(1)},${c2[1].toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+  }
+  return d;
+}
+
+function renderOverview(o) {
+  state.days = (o.daily || []).map(x => x._id);
+  const total = o.humans.events + o.bots.events;
+  const botPct = total ? o.bots.events / total * 100 : 0;
+  const humanPct = 100 - botPct;
+  if (state.days.length) {
+    const a = state.days[0], b = state.days[state.days.length - 1];
+    $("#windowNote").textContent = `Sampled window: ${fmtDay(a)} to ${fmtDay(b)} ${dayDate(b).getUTCFullYear()}, two one-hour snapshots a day at 10:00 and 20:00 UTC, ${fmt(total)} events in all. Print the Wrapped for any account in it.`;
+  }
+  paint($("#p-overview"), `
+    <p class="statement"><b>${fmt(total)}</b> events in the sample, and <b>${botPct.toFixed(1)}%</b> of them came from declared bots.</p>
+    <div class="split" role="img" aria-label="Other accounts ${humanPct.toFixed(1)} percent, declared bots ${botPct.toFixed(1)} percent">
+      <div class="h" style="flex:${o.humans.events} 1 0" data-tip="${esc("Other accounts: " + fmt(o.humans.events) + " events from " + fmt(o.humans.actors) + " accounts")}"><b>Other accounts ${humanPct.toFixed(1)}%</b><small>${fmt(o.humans.events)} events, ${fmt(o.humans.actors)} accounts</small></div>
+      <div class="b" style="flex:${o.bots.events} 1 0" data-tip="${esc("Declared bots: " + fmt(o.bots.events) + " events from " + fmt(o.bots.actors) + " accounts")}"><b>Declared bots ${botPct.toFixed(1)}%</b><small>${fmt(o.bots.events)} events, ${fmt(o.bots.actors)} accounts</small></div>
+    </div>`);
+  renderVolume(o.daily || []);
+  paint($("#p-mix"), bars((o.byType || []).slice(0, 8), { value: x => x.n, label: x => typeLabel(x._id), num: x => `${fmt(x.n)}<small>${Math.round(x.n / total * 100)}%</small>` }));
+  if (state.wrapped) renderDayChart();
+}
+
+function renderVolume(daily) {
+  const box = $("#p-volume");
+  if (!daily.length) { box.innerHTML = '<p class="note">No daily data.</p>'; return; }
+  const W = 760, H = 400, m = { t: 26, r: 22, b: 38, l: 50 };
+  const vals = daily.map(d => d.n);
+  const max = Math.max(...vals, 1);
+  const mag = Math.pow(10, Math.floor(Math.log10(max)));
+  const step = mag / 2;
+  const top = Math.ceil(max / step) * step;
+  const x = i => m.l + (daily.length > 1 ? i * (W - m.l - m.r) / (daily.length - 1) : (W - m.l - m.r) / 2);
+  const y = v => H - m.b - (v / top) * (H - m.t - m.b);
+  const pts = vals.map((v, i) => [x(i), y(v)]);
+  const line = curve(pts);
+  const area = line + `L${x(vals.length - 1).toFixed(1)},${y(0).toFixed(1)}L${x(0).toFixed(1)},${y(0).toFixed(1)}Z`;
+  const grid = [0, 1, 2, 3, 4].map(k => { const v = top * k / 4; return `<line class="gl" x1="${m.l}" x2="${W - m.r}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/><text class="ax" x="${m.l - 8}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${kfmt(v)}</text>`; }).join("");
+  const xl = daily.map((d, i) => `<text class="ax" x="${x(i).toFixed(1)}" y="${H - 12}" text-anchor="middle">${fmtDay(d._id)}</text>`).join("");
+  const pk = vals.indexOf(max);
+  const totalEvents = vals.reduce((s, v) => s + v, 0);
+  const avgEvents = Math.round(totalEvents / daily.length);
+  const peakDay = daily[pk];
+  const statsHtml = `
+    <div class="dstats">
+      <div class="dstat"><small>Peak Day</small><b>${fmtDay(peakDay._id)}</b><span>${fmt(max)} events</span></div>
+      <div class="dstat"><small>Daily Average</small><b>${kfmt(avgEvents)}</b><span>${fmt(avgEvents)} events</span></div>
+      <div class="dstat"><small>Sample Span</small><b>${daily.length} Days</b><span>${fmtDay(daily[0]._id)} – ${fmtDay(daily[daily.length - 1]._id)}</span></div>
+    </div>`;
+  paint(box, `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Events per sampled day">${grid}${xl}<path class="ar" d="${area}"/><path class="ln" d="${line}"/><circle class="pk" cx="${x(pk).toFixed(1)}" cy="${y(max).toFixed(1)}" r="6"/><text class="pt" x="${x(pk).toFixed(1)}" y="${(y(max) - 14).toFixed(1)}" text-anchor="middle">peak ${fmt(max)}</text><g class="scrub" opacity="0"><line class="sl" y1="${m.t}" y2="${H - m.b}"/><circle class="sd" r="6"/></g></svg>${statsHtml}`);
+  const svg = $("svg", box), g = $(".scrub", svg), sl = $(".sl", svg), sd = $(".sd", svg);
+  const span = (W - m.l - m.r) / Math.max(daily.length - 1, 1);
+  const move = e => {
+    const r = svg.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width * W;
+    const i = Math.max(0, Math.min(daily.length - 1, Math.round((px - m.l) / span)));
+    const cx = x(i), cy = y(vals[i]);
+    sl.setAttribute("x1", cx); sl.setAttribute("x2", cx);
+    sd.setAttribute("cx", cx); sd.setAttribute("cy", cy);
+    g.setAttribute("opacity", "1");
+    const prev = i > 0 ? vals[i - 1] : null;
+    const delta = prev ? `, ${vals[i] >= prev ? "+" : ""}${((vals[i] - prev) / prev * 100).toFixed(1)}% on the day before` : "";
+    showTip(`${fmtWd(daily[i]._id)} ${fmtDay(daily[i]._id)}: ${fmt(vals[i])} events${delta}`, r.left + cx / W * r.width, r.top + cy / H * r.height);
+  };
+  svg.addEventListener("pointermove", move);
+  svg.addEventListener("pointerdown", move);
+  svg.addEventListener("pointerleave", () => { g.setAttribute("opacity", "0"); hideTip(); });
+}
+
+function renderTrending(list) {
+  paint($("#p-trending"), list.length ? bars(list, { value: x => x.actors, label: x => x._id, sub: x => fmt(x.events) + " events", href: x => ghUrl(x._id), num: x => `${fmt(x.actors)}<small>people</small>` }) : '<p class="note">Nothing to rank yet.</p>');
+}
+function renderOrgs(list) {
+  paint($("#p-orgs"), list.length ? bars(list, { value: x => x.events, label: x => x._id, href: x => "https://github.com/" + encodeURIComponent(x._id), num: x => fmt(x.events) }) : '<p class="note">No organisation events in the sample.</p>');
+}
+/* ---------- People & Suspected automation ---------- */
+let peoplePool = [];
+let activePersona = "all";
+let currentView = "people";
+let automationData = null;
+let automationLoading = false;
+
+const FALLBACK_POOL = [
+  {"_id": "0thernet", "events": 29, "nRepos": 18, "nTypes": 5, "nDays": 5, "persona": "All-Rounder"},
+  {"_id": "0xPlayerOne", "events": 68, "nRepos": 11, "nTypes": 6, "nDays": 8, "persona": "Pull Request Pro"},
+  {"_id": "0xSero", "events": 25, "nRepos": 6, "nTypes": 3, "nDays": 5, "persona": "All-Rounder"},
+  {"_id": "0xmanhnv", "events": 35, "nRepos": 5, "nTypes": 3, "nDays": 6, "persona": "All-Rounder"},
+  {"_id": "27Bslash6", "events": 28, "nRepos": 8, "nTypes": 6, "nDays": 5, "persona": "All-Rounder"},
+  {"_id": "33mmRRee", "events": 79, "nRepos": 8, "nTypes": 3, "nDays": 3, "persona": "All-Rounder"},
+  {"_id": "4alvit", "events": 49, "nRepos": 26, "nTypes": 4, "nDays": 5, "persona": "All-Rounder"},
+  {"_id": "4laric", "events": 87, "nRepos": 4, "nTypes": 5, "nDays": 7, "persona": "Issue Hunter"},
+  {"_id": "6ZoSo9", "events": 81, "nRepos": 2, "nTypes": 5, "nDays": 8, "persona": "Committer"},
+  {"_id": "777genius", "events": 38, "nRepos": 12, "nTypes": 5, "nDays": 8, "persona": "Committer"},
+  {"_id": "9thLevelSoftware", "events": 29, "nRepos": 2, "nTypes": 3, "nDays": 3, "persona": "Pull Request Pro"},
+  {"_id": "Adam-S-Daniel", "events": 27, "nRepos": 7, "nTypes": 4, "nDays": 8, "persona": "Pull Request Pro"},
+  {"_id": "AdrianGuerraAsiati", "events": 30, "nRepos": 2, "nTypes": 3, "nDays": 4, "persona": "Committer"},
+  {"_id": "AlyciaBHZ", "events": 35, "nRepos": 7, "nTypes": 5, "nDays": 7, "persona": "All-Rounder"},
+  {"_id": "AndreasAbdi", "events": 30, "nRepos": 3, "nTypes": 4, "nDays": 6, "persona": "Committer"},
+  {"_id": "ArtVsMark", "events": 51, "nRepos": 4, "nTypes": 4, "nDays": 8, "persona": "Pull Request Pro"},
+  {"_id": "Arthur031221", "events": 66, "nRepos": 11, "nTypes": 4, "nDays": 8, "persona": "Committer"},
+  {"_id": "BradleyGleavePortfolio", "events": 48, "nRepos": 3, "nTypes": 5, "nDays": 6, "persona": "All-Rounder"},
+  {"_id": "BrewTestBot", "events": 86, "nRepos": 4, "nTypes": 4, "nDays": 8, "persona": "Pull Request Pro"},
+  {"_id": "Bugs5382", "events": 67, "nRepos": 23, "nTypes": 6, "nDays": 6, "persona": "Issue Hunter"},
+  {"_id": "CBirkbeck", "events": 54, "nRepos": 4, "nTypes": 5, "nDays": 8, "persona": "Issue Hunter"},
+  {"_id": "CarstVaartjes", "events": 29, "nRepos": 2, "nTypes": 5, "nDays": 4, "persona": "Pull Request Pro"},
+  {"_id": "Chemaclass", "events": 32, "nRepos": 5, "nTypes": 6, "nDays": 7, "persona": "Issue Hunter"},
+  {"_id": "Chreece", "events": 25, "nRepos": 5, "nTypes": 3, "nDays": 6, "persona": "Committer"},
+  {"_id": "CompleteDotTech", "events": 31, "nRepos": 9, "nTypes": 6, "nDays": 8, "persona": "Issue Hunter"},
+  {"_id": "CrispStrobe", "events": 30, "nRepos": 13, "nTypes": 4, "nDays": 7, "persona": "Committer"},
+  {"_id": "CumulativeWebInc", "events": 76, "nRepos": 11, "nTypes": 3, "nDays": 7, "persona": "Committer"},
+  {"_id": "DataNest-Supository", "events": 44, "nRepos": 2, "nTypes": 4, "nDays": 5, "persona": "Committer"},
+  {"_id": "DaveKJohn", "events": 55, "nRepos": 4, "nTypes": 5, "nDays": 6, "persona": "Issue Hunter"},
+  {"_id": "Dicklesworthstone", "events": 83, "nRepos": 35, "nTypes": 3, "nDays": 7, "persona": "Committer"},
+  {"_id": "DiogoRibeiro7", "events": 33, "nRepos": 8, "nTypes": 5, "nDays": 5, "persona": "Committer"},
+  {"_id": "DomLynch", "events": 28, "nRepos": 3, "nTypes": 3, "nDays": 6, "persona": "Committer"},
+  {"_id": "DoodleBears", "events": 37, "nRepos": 4, "nTypes": 5, "nDays": 8, "persona": "Issue Hunter"},
+  {"_id": "Dtwosam", "events": 203, "nRepos": 5, "nTypes": 4, "nDays": 8, "persona": "Committer"},
+  {"_id": "EffortlessSteven", "events": 81, "nRepos": 4, "nTypes": 8, "nDays": 6, "persona": "All-Rounder"},
+  {"_id": "Emmakex", "events": 43, "nRepos": 3, "nTypes": 5, "nDays": 4, "persona": "Committer"},
+  {"_id": "FRIKKern", "events": 32, "nRepos": 2, "nTypes": 5, "nDays": 7, "persona": "All-Rounder"},
+  {"_id": "FraGioco9", "events": 33, "nRepos": 2, "nTypes": 3, "nDays": 8, "persona": "Committer"},
+  {"_id": "FrancescoK", "events": 50, "nRepos": 2, "nTypes": 5, "nDays": 7, "persona": "All-Rounder"},
+  {"_id": "GBOGEB", "events": 76, "nRepos": 4, "nTypes": 8, "nDays": 7, "persona": "Committer"},
+  {"_id": "GWan1234", "events": 75, "nRepos": 2, "nTypes": 3, "nDays": 6, "persona": "All-Rounder"},
+  {"_id": "GeiserX", "events": 104, "nRepos": 58, "nTypes": 7, "nDays": 8, "persona": "All-Rounder"},
+  {"_id": "GiGurra", "events": 27, "nRepos": 3, "nTypes": 3, "nDays": 4, "persona": "All-Rounder"},
+  {"_id": "GoreeCloud", "events": 97, "nRepos": 10, "nTypes": 4, "nDays": 8, "persona": "Committer"},
+  {"_id": "HCDecorAD", "events": 45, "nRepos": 3, "nTypes": 3, "nDays": 4, "persona": "Committer"},
+  {"_id": "HJewkes", "events": 39, "nRepos": 5, "nTypes": 5, "nDays": 6, "persona": "All-Rounder"},
+  {"_id": "Haign12", "events": 34, "nRepos": 3, "nTypes": 3, "nDays": 6, "persona": "Committer"},
+  {"_id": "Hanz0Hatt0r1", "events": 74, "nRepos": 2, "nTypes": 3, "nDays": 7, "persona": "Committer"},
+  {"_id": "HarperZ9", "events": 31, "nRepos": 22, "nTypes": 4, "nDays": 4, "persona": "All-Rounder"},
+  {"_id": "HereLiesAz", "events": 26, "nRepos": 8, "nTypes": 5, "nDays": 4, "persona": "Committer"},
+  {"_id": "Hugloss", "events": 32, "nRepos": 2, "nTypes": 3, "nDays": 5, "persona": "Committer"},
+  {"_id": "InSuns21", "events": 54, "nRepos": 3, "nTypes": 3, "nDays": 5, "persona": "Committer"},
+  {"_id": "JDeun", "events": 50, "nRepos": 3, "nTypes": 6, "nDays": 8, "persona": "Committer"},
+  {"_id": "Jammy2211", "events": 31, "nRepos": 18, "nTypes": 5, "nDays": 6, "persona": "All-Rounder"},
+  {"_id": "JanLahmann", "events": 34, "nRepos": 16, "nTypes": 4, "nDays": 5, "persona": "All-Rounder"},
+  {"_id": "JeremyHennessy", "events": 30, "nRepos": 5, "nTypes": 3, "nDays": 7, "persona": "Committer"},
+  {"_id": "JuliaRegistrator", "events": 27, "nRepos": 2, "nTypes": 4, "nDays": 8, "persona": "Pull Request Pro"},
+  {"_id": "JuliaTagBot", "events": 25, "nRepos": 5, "nTypes": 4, "nDays": 7, "persona": "All-Rounder"},
+  {"_id": "KenlikDev", "events": 51, "nRepos": 4, "nTypes": 4, "nDays": 5, "persona": "Committer"},
+  {"_id": "Kinfe123", "events": 27, "nRepos": 5, "nTypes": 7, "nDays": 7, "persona": "All-Rounder"},
+  {"_id": "KodeStar", "events": 31, "nRepos": 4, "nTypes": 4, "nDays": 8, "persona": "Pull Request Pro"},
+  {"_id": "Koopa0", "events": 33, "nRepos": 2, "nTypes": 6, "nDays": 6, "persona": "All-Rounder"},
+  {"_id": "KooshaPari", "events": 55, "nRepos": 15, "nTypes": 5, "nDays": 4, "persona": "Committer"},
+  {"_id": "Krister-Johansson", "events": 32, "nRepos": 3, "nTypes": 6, "nDays": 5, "persona": "Issue Hunter"},
+  {"_id": "LESdylan", "events": 27, "nRepos": 2, "nTypes": 3, "nDays": 6, "persona": "Committer"},
+  {"_id": "Lalalalendia", "events": 161, "nRepos": 3, "nTypes": 5, "nDays": 8, "persona": "Committer"},
+  {"_id": "Lamy210", "events": 37, "nRepos": 8, "nTypes": 3, "nDays": 3, "persona": "Committer"},
+  {"_id": "LioRael", "events": 35, "nRepos": 10, "nTypes": 3, "nDays": 4, "persona": "All-Rounder"},
+  {"_id": "LionSR", "events": 30, "nRepos": 2, "nTypes": 5, "nDays": 7, "persona": "All-Rounder"},
+  {"_id": "LizardByte-bot", "events": 198, "nRepos": 4, "nTypes": 3, "nDays": 4, "persona": "Committer"},
+  {"_id": "LounisBou", "events": 28, "nRepos": 3, "nTypes": 4, "nDays": 7, "persona": "Committer"},
+  {"_id": "MagicalTux", "events": 77, "nRepos": 49, "nTypes": 4, "nDays": 7, "persona": "Committer"},
+  {"_id": "MarcelRoozekrans", "events": 28, "nRepos": 12, "nTypes": 6, "nDays": 7, "persona": "All-Rounder"},
+  {"_id": "MariosGiannakaras", "events": 58, "nRepos": 2, "nTypes": 4, "nDays": 8, "persona": "Committer"},
+  {"_id": "Masterleeaus", "events": 37, "nRepos": 3, "nTypes": 6, "nDays": 3, "persona": "Committer"},
+  {"_id": "MattJackson", "events": 34, "nRepos": 13, "nTypes": 4, "nDays": 4, "persona": "Committer"},
+  {"_id": "MichaelWave369", "events": 25, "nRepos": 8, "nTypes": 3, "nDays": 5, "persona": "Committer"},
+  {"_id": "MikkoParkkola", "events": 106, "nRepos": 2, "nTypes": 6, "nDays": 8, "persona": "All-Rounder"},
+  {"_id": "MinhHaDuong", "events": 33, "nRepos": 2, "nTypes": 6, "nDays": 7, "persona": "All-Rounder"},
+  {"_id": "MohammedEmad333", "events": 65, "nRepos": 13, "nTypes": 3, "nDays": 8, "persona": "Committer"},
+  {"_id": "MykolaDotsenko", "events": 39, "nRepos": 3, "nTypes": 3, "nDays": 6, "persona": "Committer"},
+  {"_id": "NTinkicht", "events": 25, "nRepos": 3, "nTypes": 5, "nDays": 5, "persona": "Issue Hunter"},
+  {"_id": "Nabouna32", "events": 30, "nRepos": 2, "nTypes": 5, "nDays": 7, "persona": "Committer"},
+  {"_id": "Naveax", "events": 27, "nRepos": 4, "nTypes": 4, "nDays": 6, "persona": "Committer"},
+  {"_id": "Nitjsefnie", "events": 40, "nRepos": 7, "nTypes": 6, "nDays": 8, "persona": "All-Rounder"},
+  {"_id": "NoeFlandre", "events": 25, "nRepos": 9, "nTypes": 6, "nDays": 7, "persona": "All-Rounder"},
+  {"_id": "Nolane-x", "events": 43, "nRepos": 4, "nTypes": 3, "nDays": 7, "persona": "Committer"},
+  {"_id": "Oleksii-debug", "events": 567, "nRepos": 7, "nTypes": 6, "nDays": 7, "persona": "Committer"},
+  {"_id": "P00NSMASHER", "events": 120, "nRepos": 6, "nTypes": 4, "nDays": 8, "persona": "Committer"},
+  {"_id": "Pabloguilherme01", "events": 39, "nRepos": 2, "nTypes": 3, "nDays": 5, "persona": "Committer"},
+  {"_id": "PetrFedin", "events": 42, "nRepos": 9, "nTypes": 5, "nDays": 6, "persona": "Committer"},
+  {"_id": "PrzemyslawKlys", "events": 38, "nRepos": 12, "nTypes": 6, "nDays": 8, "persona": "All-Rounder"},
+  {"_id": "RafaelAlbaWebify", "events": 35, "nRepos": 4, "nTypes": 3, "nDays": 4, "persona": "Committer"},
+  {"_id": "RedstoneX", "events": 42, "nRepos": 2, "nTypes": 5, "nDays": 6, "persona": "All-Rounder"},
+  {"_id": "Ricas13", "events": 55, "nRepos": 3, "nTypes": 3, "nDays": 6, "persona": "Committer"},
+  {"_id": "Riflex91", "events": 73, "nRepos": 5, "nTypes": 3, "nDays": 8, "persona": "Committer"},
+  {"_id": "RobTand", "events": 26, "nRepos": 3, "nTypes": 6, "nDays": 7, "persona": "All-Rounder"},
+  {"_id": "RogerNavelsaker", "events": 58, "nRepos": 36, "nTypes": 4, "nDays": 5, "persona": "All-Rounder"},
+  {"_id": "RomanZavadaM", "events": 28, "nRepos": 3, "nTypes": 4, "nDays": 4, "persona": "Committer"},
+  {"_id": "SamMausberg", "events": 41, "nRepos": 2, "nTypes": 6, "nDays": 4, "persona": "All-Rounder"},
+  {"_id": "SamuelHassine", "events": 47, "nRepos": 5, "nTypes": 8, "nDays": 6, "persona": "Reviewer"},
+  {"_id": "ShaulLavo", "events": 35, "nRepos": 2, "nTypes": 5, "nDays": 7, "persona": "All-Rounder"},
+  {"_id": "ShivaCoreDev", "events": 36, "nRepos": 7, "nTypes": 4, "nDays": 5, "persona": "Committer"},
+  {"_id": "ShlomiPorush", "events": 28, "nRepos": 2, "nTypes": 3, "nDays": 5, "persona": "Committer"},
+  {"_id": "SimonBarnett", "events": 58, "nRepos": 2, "nTypes": 6, "nDays": 6, "persona": "Issue Hunter"},
+  {"_id": "Sinity", "events": 26, "nRepos": 3, "nTypes": 5, "nDays": 3, "persona": "Issue Hunter"},
+  {"_id": "SuperInstance", "events": 25, "nRepos": 13, "nTypes": 3, "nDays": 6, "persona": "Committer"},
+  {"_id": "T0mSIlver", "events": 33, "nRepos": 3, "nTypes": 6, "nDays": 7, "persona": "All-Rounder"},
+  {"_id": "Ternedal", "events": 29, "nRepos": 3, "nTypes": 3, "nDays": 6, "persona": "Committer"},
+  {"_id": "TheGreatAxios", "events": 29, "nRepos": 3, "nTypes": 5, "nDays": 5, "persona": "Issue Hunter"},
+  {"_id": "TheHalfMoon", "events": 25, "nRepos": 8, "nTypes": 4, "nDays": 6, "persona": "Committer"},
+  {"_id": "ThomasK33", "events": 55, "nRepos": 3, "nTypes": 8, "nDays": 7, "persona": "Reviewer"},
+  {"_id": "TimeToBuildBob", "events": 31, "nRepos": 12, "nTypes": 7, "nDays": 8, "persona": "All-Rounder"},
+  {"_id": "TomiToivio", "events": 25, "nRepos": 5, "nTypes": 4, "nDays": 6, "persona": "Committer"},
+  {"_id": "Travelintrips", "events": 34, "nRepos": 3, "nTypes": 3, "nDays": 7, "persona": "Committer"},
+  {"_id": "Trexzo", "events": 98, "nRepos": 4, "nTypes": 5, "nDays": 7, "persona": "Committer"},
+  {"_id": "Tristan-Stoltz-ERC", "events": 207, "nRepos": 7, "nTypes": 5, "nDays": 7, "persona": "Committer"},
+  {"_id": "Tzeusy", "events": 281, "nRepos": 2, "nTypes": 4, "nDays": 4, "persona": "Committer"},
+  {"_id": "Unjuno", "events": 219, "nRepos": 7, "nTypes": 7, "nDays": 7, "persona": "All-Rounder"},
+  {"_id": "UnknownAlienHuman", "events": 194, "nRepos": 5, "nTypes": 6, "nDays": 8, "persona": "All-Rounder"}
+];
+
+function shuffleArray(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function renderPeopleView() {
+  const el = $("#p-accounts");
+  if (!el) return;
+  const pool = activePersona === "all" ? peoplePool : peoplePool.filter(x => x.persona === activePersona);
+  const picked = shuffleArray(pool).slice(0, 12);
+  if (!picked.length) {
+    paint(el, '<p class="note">No accounts matched this persona in the pool. Pick another persona or show all.</p>');
+    return;
+  }
+  paint(el, bars(picked, {
+    value: x => x.events,
+    key: x => x._id,
+    label: x => x._id,
+    sub: x => `${x.nRepos} ${x.nRepos === 1 ? "repo" : "repos"}, ${x.nDays} active ${x.nDays === 1 ? "day" : "days"} · ${x.persona}`,
+    attr: "user",
+    active: null,
+    num: x => fmt(x.events)
+  }) + '<p class="note" style="margin-top:12px">Select an account to print its Wrapped.</p>');
+}
+
+function renderAutomationView(list) {
+  const el = $("#p-accounts");
+  if (!el) return;
+  paint(el, list && list.length
+    ? bars(list, {
+        value: x => x.events,
+        key: x => x._id,
+        label: x => x._id,
+        sub: x => `${x.nRepos} ${x.nRepos === 1 ? "repo" : "repos"}, ${x.nTypes} event ${x.nTypes === 1 ? "type" : "types"}`,
+        attr: "user",
+        active: null,
+        num: x => fmt(x.events)
+      }) + '<p class="note" style="margin-top:12px">Select an account to print its Wrapped.</p>'
+    : '<p class="note">No accounts matched the rule in this sample.</p>');
+}
+
+async function switchView(view) {
+  if (currentView === view && view === "people") return;
+  currentView = view;
+  const tabP = $("#tabPeople"), tabA = $("#tabAutomation");
+  const h = $("#h-people"), lede = $("#peopleLede"), ctrl = $("#peopleControls");
+
+  if (view === "people") {
+    tabP.classList.add("active");
+    tabP.setAttribute("aria-selected", "true");
+    tabA.classList.remove("active");
+    tabA.setAttribute("aria-selected", "false");
+    h.textContent = "Accounts with a story to tell";
+    lede.textContent = "Accounts with 25 to 600 events, at least 2 repos, 3 event types and 3 active days. Picked at random from a pool of 120. Select an account to read its Wrapped.";
+    ctrl.hidden = false;
+    renderPeopleView();
+  } else {
+    tabA.classList.add("active");
+    tabA.setAttribute("aria-selected", "true");
+    tabP.classList.remove("active");
+    tabP.setAttribute("aria-selected", "false");
+    h.textContent = "Accounts that act like bots without saying so";
+    lede.textContent = "GitHub marks some accounts as bots. Others behave the same way: hundreds of events, in one or two repositories, over and over. This list shows accounts that are not declared bots but logged 500 or more events across two repositories or fewer. It is a rule of thumb, not proof. Select an account to read its Wrapped.";
+    ctrl.hidden = true;
+
+    if (automationData) {
+      renderAutomationView(automationData);
+    } else if (!automationLoading) {
+      automationLoading = true;
+      paint($("#p-accounts"), '<p class="skel">Looking for patterns</p>');
+      try {
+        automationData = await api("/api/global/automation");
+        if (currentView === "automation") renderAutomationView(automationData);
+      } catch (err) {
+        $("#p-accounts").innerHTML = `<p class="skel err">Could not load automation list (${esc(err.message)}). <button type="button" class="tl" id="retryAutomation">Try again</button></p>`;
+      } finally {
+        automationLoading = false;
+      }
+    }
+  }
+}
+
+async function loadPeoplePool() {
+  try {
+    const data = await api("/api/global/people");
+    peoplePool = Array.isArray(data) && data.length ? data : FALLBACK_POOL;
+  } catch (_) {
+    peoplePool = FALLBACK_POOL;
+  }
+  if (currentView === "people") {
+    renderPeopleView();
+  }
+}
+
+
+/* ---------- Index lab ---------- */
+const median = a => { const s = a.slice().sort((p, q) => p - q); return s[Math.floor(s.length / 2)]; };
+async function race() {
+  const u = $("#labUser").value.trim();
+  if (!u) return;
+  const btn = $("#race"), out = $("#labOut");
+  btn.disabled = true;
+  out.innerHTML = '<p class="skel">Running three rounds of each plan</p>';
+  try {
+    const runs = [];
+    for (let i = 0; i < 3; i++) runs.push(await api("/api/perf/user/" + encodeURIComponent(u)));
+    const scan = { ms: median(runs.map(r => r.withoutIndex.ms)), docs: runs[0].withoutIndex.docsExamined };
+    const idx = { ms: median(runs.map(r => r.withIndex.ms)), docs: runs[0].withIndex.docsExamined, ret: runs[0].withIndex.returned };
+    const maxDocs = Math.max(scan.docs, idx.docs, 1), maxMs = Math.max(scan.ms, idx.ms, 1);
+    const row = (label, v, max, num) => bars([{ v, label, num }], { value: x => x.v / max, label: x => x.label, num: x => x.num });
+    paint(out, `
+      <p class="verdict">For @${esc(u)}, the index read <b>${fmt(idx.docs)}</b> documents. The scan read <b>${fmt(scan.docs)}</b>.</p>
+      <h3 class="ph">Documents examined</h3>
+      ${row("Full collection scan", scan.docs, maxDocs, fmt(scan.docs))}
+      ${row("Index on actor_time", idx.docs, maxDocs, fmt(idx.docs))}
+      <h3 class="ph" style="margin-top:28px">Time, median of three runs</h3>
+      ${row("Full collection scan", scan.ms, maxMs, scan.ms + " ms")}
+      ${row("Index on actor_time", idx.ms, maxMs, idx.ms + " ms")}
+      <p class="note" style="margin-top:14px">${fmt(idx.ret)} events matched. The first run can include cache warm-up, so run it twice if the times look odd.</p>`);
+  } catch (e) {
+    out.innerHTML = `<p class="skel err">Could not run the comparison (${esc(e.message)}). If the message mentions a hint, create the actor_time index first.</p>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ---------- loaders for the global panels ---------- */
+const LOADERS = {};
+async function loadInto(sel, path, fn, also) {
+  LOADERS[sel] = { path, fn, also };
+  try {
+    fn(await api(path));
+  } catch (e) {
+    const msg = `<p class="skel err">Could not load this section (${esc(e.message)}). <button type="button" class="tl" data-retry="${esc(sel)}">Try again</button></p>`;
+    [sel].concat(also || []).forEach(s => { const el = $(s); if (el) el.innerHTML = msg; });
+  }
+}
+
+/* ---------- events ---------- */
+$("#form").addEventListener("submit", e => { e.preventDefault(); loadUser($("#q").value); });
+$("#raceForm").addEventListener("submit", e => { e.preventDefault(); race(); });
+
+document.addEventListener("click", async e => {
+  const t = e.target.closest && e.target.closest("button");
+  if (!t) return;
+  if (t.id === "tabPeople") { switchView("people"); return; }
+  if (t.id === "tabAutomation") { switchView("automation"); return; }
+  if (t.id === "btnShuffle") { renderPeopleView(); return; }
+  if (t.id === "retryAutomation") { automationData = null; switchView("automation"); return; }
+  if (t.dataset.persona) {
+    activePersona = t.dataset.persona;
+    $$(".pchip", $("#personaChips")).forEach(b => {
+      const isAct = b.dataset.persona === activePersona;
+      b.classList.toggle("active", isAct);
+      b.setAttribute("aria-pressed", String(isAct));
+    });
+    renderPeopleView();
+    return;
+  }
+  if (t.dataset.try) { loadUser(t.dataset.try); return; }
+  if (t.dataset.user) {
+    loadUser(t.dataset.user);
+    $("#you").scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
+    return;
+  }
+  if (t.dataset.type !== undefined && t.closest("#wrapped")) { toggleFilter("type", t.dataset.type); return; }
+  if (t.dataset.repo !== undefined && t.closest("#wrapped")) { toggleFilter("repo", t.dataset.repo); return; }
+  if (t.dataset.clear) { state.filters[t.dataset.clear] = null; renderFilters(); loadLog(true); return; }
+  if (t.id === "more") { loadLog(false); return; }
+  if (t.dataset.retry) {
+    const L = LOADERS[t.dataset.retry];
+    if (L) loadInto(t.dataset.retry, L.path, L.fn, L.also);
+    return;
+  }
+  if (t.id === "copySummary" || t.id === "copyLink") {
+    const text = t.id === "copySummary" ? state.summary : location.href;
+    const label = t.textContent;
+    try { await navigator.clipboard.writeText(text); t.textContent = "Copied"; } catch (_) { t.textContent = "Copy failed"; }
+    setTimeout(() => { t.textContent = label; }, 1600);
+  }
+});
+
+document.addEventListener("keydown", e => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (e.key === "/" && tag !== "INPUT" && tag !== "TEXTAREA") {
+    e.preventDefault();
+    $("#q").focus();
+    $("#you").scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
+  }
+});
+
+/* nav highlight */
+if ("IntersectionObserver" in window) {
+  const links = $$(".nav nav a");
+  const spy = new IntersectionObserver(es => {
+    es.forEach(en => {
+      if (en.isIntersecting) links.forEach(a => a.setAttribute("aria-current", String(a.dataset.sec === en.target.id)));
+    });
+  }, { rootMargin: "-45% 0px -50% 0px" });
+  $$("main .block").forEach(s => spy.observe(s));
+}
+
+/* ---------- start ---------- */
+(function init() {
+  const q = new URLSearchParams(location.search).get("u");
+  if (q) {
+    loadUser(q, { push: false });
+  }
+  loadInto("#p-overview", "/api/global/overview", renderOverview, ["#p-volume", "#p-mix"]);
+  loadInto("#p-trending", "/api/global/trending", renderTrending);
+  loadInto("#p-orgs", "/api/global/orgs", renderOrgs);
+  loadPeoplePool();
+})();
+})();
+</script>
+</body>
+</html>
